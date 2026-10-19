@@ -1,0 +1,108 @@
+buildscript {
+    repositories {
+        maven { url = 'https://maven.minecraftforge.net' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.1.+', changing: true
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'eclipse'
+apply plugin: 'maven-publish'
+
+version = mod_version
+group = mod_group_id
+archivesBaseName = mod_id
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+
+minecraft {
+    mappings channel: 'snapshot', version: '20210309-1.16.5'
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods { strangedecisions { source sourceSets.main } }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods { strangedecisions { source sourceSets.main } }
+        }
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+}
+
+// ---------------------------------------------------------------------------
+// Fail the build loudly if a user-supplied asset is missing or corrupt.
+// ---------------------------------------------------------------------------
+def requiredAssets = [
+        'assets/strangedecisions/textures/gui/jumpscare_second.png'  : 'PNG',
+        'assets/strangedecisions/textures/gui/jumpscare_portrait.png': 'PNG',
+        'assets/strangedecisions/textures/gui/jumpscare_peek.png'    : 'PNG',
+        'assets/strangedecisions/textures/gui/jumpscare_prison.png'  : 'PNG',
+        'assets/strangedecisions/textures/entity/steve_stalker.png'  : 'PNG',
+        'assets/strangedecisions/sounds/jumpscare_scream.ogg'        : 'OGG',
+        'assets/strangedecisions/sounds/chase_music.ogg'             : 'OGG',
+]
+
+task verifyAssets {
+    doLast {
+        def missing = []
+        def invalid = []
+        requiredAssets.each { path, kind ->
+            def f = file("src/main/resources/${path}")
+            if (!f.exists()) {
+                missing << path
+            } else {
+                def head = f.withInputStream { s -> def b = new byte[4]; s.read(b); b }
+                def ok = (kind == 'PNG') ? (head[0] == (byte) 0x89 && head[1] == (byte) 0x50) : (new String(head, 'ISO-8859-1') == 'OggS')
+                if (!ok) invalid << path
+            }
+        }
+        if (!file('src/main/resources/assets/strangedecisions/sounds/ending_music.ogg').exists()) {
+            logger.warn('OPTIONAL ending_music.ogg not supplied - the ending music will be skipped.')
+        }
+        if (missing || invalid) {
+            throw new GradleException("Asset problem.\n  MISSING: ${missing}\n  INVALID: ${invalid}\nThese files must be supplied in src/main/resources/.")
+        }
+        logger.lifecycle('verifyAssets: all required assets present.')
+    }
+}
+
+processResources {
+    dependsOn verifyAssets
+    def props = [mod_id: mod_id, mod_name: mod_name, mod_version: mod_version,
+                 mod_authors: mod_authors, mod_description: mod_description]
+    inputs.properties props
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand props
+    }
+}
+
+jar {
+    manifest {
+        attributes([
+                'Specification-Title'   : mod_id,
+                'Specification-Vendor'  : mod_authors,
+                'Specification-Version' : '1',
+                'Implementation-Title'  : project.name,
+                'Implementation-Version': project.version,
+                'Implementation-Vendor' : mod_authors
+        ])
+    }
+}
+
+jar.finalizedBy('reobfJar')
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
